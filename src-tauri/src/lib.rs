@@ -22,6 +22,7 @@ pub fn run() {
             commands::get_playlist_tree,
             commands::get_playlist_tracks,
             commands::get_all_tracks,
+            commands::check_track_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

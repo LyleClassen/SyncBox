@@ -1,5 +1,7 @@
 //! Tauri commands for Sync and reading the Local DB.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -7,6 +9,7 @@ use super::error::{LocalDbError, SyncError};
 use super::local_db::{self, PlaylistNode, TrackRow};
 use super::rekordbox;
 use super::sync::{Library, SyncSummary};
+use super::track_file::{FileCheck, UnplayableReason};
 
 /// Event sent with a [`super::sync::Progress`] payload while a Sync runs.
 pub const SYNC_PROGRESS_EVENT: &str = "sync-progress";
@@ -72,4 +75,28 @@ pub fn get_playlist_tracks(
 #[tauri::command]
 pub fn get_all_tracks(library: State<Library>) -> Result<Vec<TrackRow>, LocalDbError> {
     Ok(local_db::all_tracks(&library.conn())?)
+}
+
+/// Check these Tracks' files right now and return the Unplayable Reason for
+/// each one that can't be loaded. Tracks missing from the result are playable.
+///
+/// Separate from the track list reads because the first check after a reboot
+/// can take seconds while the OS reads directory entries from disk. Runs off
+/// the main thread, and releases the Local DB lock before touching the
+/// filesystem. Nothing is cached: every call checks again.
+#[tauri::command]
+pub async fn check_track_files(
+    app: AppHandle,
+    track_ids: Vec<String>,
+) -> Result<HashMap<String, UnplayableReason>, LocalDbError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = local_db::track_file_paths(&app.state::<Library>().conn(), track_ids)?;
+        let mut check = FileCheck::on_disk();
+        Ok(paths
+            .into_iter()
+            .filter_map(|(id, raw)| check.reason(raw.as_deref()).map(|r| (id, r)))
+            .collect())
+    })
+    .await
+    .unwrap_or(Err(LocalDbError::Interrupted))
 }

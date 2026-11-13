@@ -5,15 +5,24 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { useToast } from "@astryxdesign/core/Toast";
 import { TopNav } from "@astryxdesign/core/TopNav";
-import { Theme } from "@astryxdesign/core/theme";
-import { gothicTheme } from "@astryxdesign/theme-gothic/built";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { PlaylistSidebar } from "./features/sidebar/PlaylistSidebar";
 import { TrackTable } from "./features/track-table/TrackTable";
 import type { PlaylistNode } from "./library/api";
 import { overallProgress, progressLabel } from "./library/syncProgress";
-import { filterRows, toTableRows } from "./library/trackRows";
+import {
+  filterRows,
+  type TrackTableRow,
+  toTableRows,
+} from "./library/trackRows";
 import { ALL_TRACKS_ID, useLibrary } from "./library/useLibrary";
 import "./App.css";
 
@@ -28,7 +37,8 @@ function findName(nodes: PlaylistNode[], id: string): string | null {
 
 export default function App() {
   const library = useLibrary();
-  const { sync, selectedId, tree } = library;
+  const { sync, selectedId, tree, checkTrack } = library;
+  const toast = useToast();
   const isSyncing = sync.status === "running";
 
   const [filter, setFilter] = useState("");
@@ -37,7 +47,33 @@ export default function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on selection change only.
   useEffect(() => setFilter(""), [selectedId]);
 
-  const allRows = useMemo(() => toTableRows(library.tracks), [library.tracks]);
+  const allRows = useMemo(
+    () => toTableRows(library.tracks, library.reasons),
+    [library.tracks, library.reasons],
+  );
+
+  // Check the file again on every load: the row's reason may be stale.
+  const loadTrack = useCallback(
+    async (row: TrackTableRow) => {
+      let reason: Awaited<ReturnType<typeof checkTrack>>;
+      try {
+        reason = await checkTrack(row.id);
+      } catch (e) {
+        toast({ type: "error", body: `Could not check the file: ${e}` });
+        return;
+      }
+      if (reason) {
+        toast({
+          type: "error",
+          uniqueID: "track-load",
+          body: `Can't load “${row.title || "Untitled"}”. ${reason.message}`,
+        });
+        return;
+      }
+      // Playback (#4) loads the Track here.
+    },
+    [checkTrack, toast],
+  );
   const rows = useMemo(
     () => filterRows(allRows, deferredFilter),
     [allRows, deferredFilter],
@@ -102,61 +138,60 @@ export default function App() {
     ) : undefined;
 
   return (
-    <Theme theme={gothicTheme} mode="dark">
-      <AppShell
-        height="fill"
-        contentPadding={0}
-        topNav={topNav}
-        banner={banner}
-        mobileNav={false}
-        sideNav={
-          <PlaylistSidebar
-            tree={tree}
-            selectedId={selectedId}
-            onSelect={library.select}
-            isSyncing={isSyncing}
-          />
-        }
-      >
-        <div className="sb-main">
-          <div className="sb-toolbar">
-            <Heading level={2}>{listName}</Heading>
-            <div className="sb-toolbar-end">
-              <Text type="supporting">
-                {count} {rows.length === 1 ? "Track" : "Tracks"}
-              </Text>
-              <TextInput
-                label="Filter"
-                isLabelHidden
-                placeholder="Filter by title, artist or album"
-                value={filter}
-                onChange={setFilter}
-                hasClear
-                size="sm"
-                startIcon="search"
-              />
-            </div>
+    <AppShell
+      height="fill"
+      contentPadding={0}
+      topNav={topNav}
+      banner={banner}
+      mobileNav={false}
+      sideNav={
+        <PlaylistSidebar
+          tree={tree}
+          selectedId={selectedId}
+          onSelect={library.select}
+          isSyncing={isSyncing}
+        />
+      }
+    >
+      <div className="sb-main">
+        <div className="sb-toolbar">
+          <Heading level={2}>{listName}</Heading>
+          <div className="sb-toolbar-end">
+            <Text type="supporting">
+              {count} {rows.length === 1 ? "Track" : "Tracks"}
+            </Text>
+            <TextInput
+              label="Filter"
+              isLabelHidden
+              placeholder="Filter by title, artist or album"
+              value={filter}
+              onChange={setFilter}
+              hasClear
+              size="sm"
+              startIcon="search"
+            />
           </div>
-          <TrackTable
-            rows={rows}
-            isLoading={library.isLoadingTracks}
-            emptyTitle={
-              isFiltered
-                ? "No Tracks match the filter"
-                : isSyncing
-                  ? "Syncing…"
-                  : "No Tracks here"
-            }
-            emptyDescription={
-              isFiltered
-                ? "Try fewer or different words."
-                : tree.length === 0 && !isSyncing
-                  ? "Sync to bring in your Rekordbox Library."
-                  : undefined
-            }
-          />
         </div>
-      </AppShell>
-    </Theme>
+        <TrackTable
+          rows={rows}
+          isLoading={library.isLoadingTracks}
+          onLoad={loadTrack}
+          emptyTitle={
+            isFiltered
+              ? "No Tracks match the filter"
+              : isSyncing
+                ? "Syncing…"
+                : "No Tracks here"
+          }
+          emptyDescription={
+            isFiltered
+              ? "Try fewer or different words."
+              : tree.length === 0 && !isSyncing
+                ? "Sync to bring in your Rekordbox Library."
+                : undefined
+          }
+        />
+      </div>
+    </AppShell>
   );
 }

@@ -89,3 +89,8 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* A Track with an Unplayable Reason; the reason is the row tooltip. */
+.sb-row-unplayable {
+  color: var(--color-text-disabled);
+}

@@ -27,6 +27,24 @@ export interface Track {
   filePath: string | null;
 }
 
+export type UnplayableKind =
+  | "streaming"
+  | "volumeOffline"
+  | "missing"
+  | "noPath";
+
+/** Why a Track can't be loaded (src-tauri/src/library/track_file.rs). */
+export interface UnplayableReason {
+  kind: UnplayableKind;
+  /** The streaming service, volume root or file path, if any. */
+  detail: string | null;
+  /** Guidance for the user. */
+  message: string;
+}
+
+/** Unplayable Reasons by Track id. Tracks not in it are playable. */
+export type UnplayableReasons = Record<string, UnplayableReason>;
+
 export type SyncPhase = "playlists" | "tracks" | "cues";
 
 export interface SyncProgress {
@@ -65,6 +83,10 @@ export const getPlaylistTracks = (playlistId: string) =>
   invoke<Track[]>("get_playlist_tracks", { playlistId });
 
 export const getAllTracks = () => invoke<Track[]>("get_all_tracks");
+
+/** Checks the Tracks' files now (never cached) and returns the unplayable ones. */
+export const checkTrackFiles = (trackIds: string[]) =>
+  invoke<UnplayableReasons>("check_track_files", { trackIds });
 
 export const onSyncProgress = (
   handler: (progress: SyncProgress) => void,
