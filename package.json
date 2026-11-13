@@ -13,12 +13,16 @@
     "check": "biome check ."
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "@astryxdesign/core": "^0.7.15",
+    "@astryxdesign/theme-gothic": "^0.7.15",
+    "@stylexjs/stylex": "^0.19.2",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "^0.7.15",
     "@biomejs/biome": "2.6.7",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",

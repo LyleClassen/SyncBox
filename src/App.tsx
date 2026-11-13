@@ -1,6 +1,13 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Stack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Theme } from "@astryxdesign/core/theme";
+import { gothicTheme } from "@astryxdesign/theme-gothic/built";
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import "./App.css";
 
 function App() {
@@ -13,38 +20,33 @@ function App() {
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank" rel="noopener">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank" rel="noopener">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank" rel="noopener">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <Theme theme={gothicTheme} mode="dark">
+      <Stack align="center" justify="center" padding={6} minHeight="100vh">
+        <Card maxWidth={480} width="100%">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              greet();
+            }}
+          >
+            <Stack gap={4}>
+              <Heading level={1}>SyncBox</Heading>
+              <Text type="supporting">
+                Enter a name and say hello to the Tauri backend.
+              </Text>
+              <TextInput
+                label="Name"
+                value={name}
+                onChange={setName}
+                placeholder="Enter a name..."
+              />
+              <Button type="submit" variant="primary" label="Greet" />
+              {greetMsg && <Text>{greetMsg}</Text>}
+            </Stack>
+          </form>
+        </Card>
+      </Stack>
+    </Theme>
   );
 }
 
