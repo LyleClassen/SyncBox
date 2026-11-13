@@ -24,6 +24,7 @@ bun run tauri dev
 ## Testing
 
 ```sh
+bun run test        # UI unit tests (Camelot, track rows)
 cd src-tauri
 cargo test --lib
 # Dev-only: Sync your real master.db (opened read-only) into a throwaway Local DB
