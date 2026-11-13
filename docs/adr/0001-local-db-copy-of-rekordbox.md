@@ -1,0 +1,3 @@
+# Keep a Local DB copy of the Rekordbox Library from Spec 1, even while Sync is import-only
+
+In Spec 1, SyncBox only reads from Rekordbox, so the UI could query `master.db` through `rbox` directly. That would be simpler and never stale. We copy the Rekordbox Library into SyncBox's own SQLite database (`rusqlite`) anyway, and the UI reads only from that copy. Every later feature (cached waveforms, analysis, local cue edits, Write-back) needs somewhere to keep data Rekordbox doesn't have. Switching from live `master.db` reads to a local copy later would mean rewriting every query path. The cost is that the copy can be out of date until the user runs a Sync.
