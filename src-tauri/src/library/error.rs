@@ -40,8 +40,12 @@ impl Serialize for SyncError {
 
 /// An error from a Local DB read, sent to the UI as a message.
 #[derive(Debug, thiserror::Error)]
-#[error("Could not read the Local DB: {0}")]
-pub struct LocalDbError(#[from] pub rusqlite::Error);
+pub enum LocalDbError {
+    #[error("Could not read the Local DB: {0}")]
+    Read(#[from] rusqlite::Error),
+    #[error("Reading the Local DB was interrupted.")]
+    Interrupted,
+}
 
 impl Serialize for LocalDbError {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

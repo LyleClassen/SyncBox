@@ -3,6 +3,7 @@
 // empty).
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  checkTrackFiles,
   getAllTracks,
   getPlaylistTracks,
   getPlaylistTree,
@@ -14,6 +15,8 @@ import {
   syncFromRekordbox,
   syncIfEmpty,
   type Track,
+  type UnplayableReason,
+  type UnplayableReasons,
 } from "./api";
 
 /** Sidebar id for the All Tracks entry. Never a Rekordbox playlist id. */
@@ -59,6 +62,7 @@ export function useLibrary() {
   const [tree, setTree] = useState<PlaylistNode[]>([]);
   const [selectedId, setSelectedId] = useState(readSelected);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [reasons, setReasons] = useState<UnplayableReasons>({});
   const [isLoadingTracks, setIsLoadingTracks] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sync, setSync] = useState<SyncState>({ status: "idle" });
@@ -144,11 +148,53 @@ export function useLibrary() {
     };
   }, [selectedId, generation]);
 
+  // Check the list's files once it has loaded, and again whenever the window
+  // regains focus, since drives may have been plugged in or removed meanwhile.
+  // The table shows straight away; reasons fill in when the check finishes.
+  useEffect(() => {
+    let cancelled = false;
+    setReasons({});
+    if (tracks.length === 0) return;
+    const ids = tracks.map((t) => t.id);
+    const check = () =>
+      checkTrackFiles(ids)
+        .then((result) => {
+          if (!cancelled) setReasons(result);
+        })
+        // A failed check only means rows show no reason; loading checks again.
+        .catch(() => {});
+    check();
+    window.addEventListener("focus", check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", check);
+    };
+  }, [tracks]);
+
+  /** Checks one Track's file now, before loading it. `null` means playable. */
+  const checkTrack = useCallback(
+    async (trackId: string): Promise<UnplayableReason | null> => {
+      const result = await checkTrackFiles([trackId]);
+      const reason = result[trackId] ?? null;
+      setReasons((prev) => {
+        if (prev[trackId]?.message === reason?.message) return prev;
+        const next = { ...prev };
+        if (reason) next[trackId] = reason;
+        else delete next[trackId];
+        return next;
+      });
+      return reason;
+    },
+    [],
+  );
+
   return {
     tree,
     selectedId,
     select,
     tracks,
+    reasons,
+    checkTrack,
     isLoadingTracks,
     loadError,
     sync,

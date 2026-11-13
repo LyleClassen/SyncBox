@@ -338,6 +338,26 @@ fn track_row(r: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
     })
 }
 
+/// Each Track's raw Rekordbox file path. A Track that doesn't exist gets
+/// `None`, the same as one with no path.
+pub fn track_file_paths(
+    conn: &Connection,
+    track_ids: Vec<String>,
+) -> rusqlite::Result<Vec<(String, Option<String>)>> {
+    use rusqlite::OptionalExtension;
+    let mut stmt = conn.prepare("SELECT file_path FROM rb_track WHERE id = ?1")?;
+    track_ids
+        .into_iter()
+        .map(|id| {
+            let path = stmt
+                .query_row([&id], |r| r.get::<_, Option<String>>(0))
+                .optional()?
+                .flatten();
+            Ok((id, path))
+        })
+        .collect()
+}
+
 /// A Playlist's Tracks in Playlist order. Folders have none.
 pub fn playlist_tracks(conn: &Connection, playlist_id: &str) -> rusqlite::Result<Vec<TrackRow>> {
     let sql = format!(
@@ -565,6 +585,23 @@ mod tests {
             (2, 2)
         );
         assert_eq!((last(Phase::Cues).done, last(Phase::Cues).total), (2, 2));
+    }
+
+    #[test]
+    fn reads_file_paths_in_request_order() {
+        let mut conn = db();
+        let mut snap = snapshot(&["t1", "t2"]);
+        snap.tracks[1].file_path = Some("E:/Music/b.mp3".into());
+        sync(&mut conn, &snap);
+        let paths = track_file_paths(&conn, vec!["t2".into(), "t1".into(), "gone".into()]).unwrap();
+        assert_eq!(
+            paths,
+            [
+                ("t2".to_owned(), Some("E:/Music/b.mp3".to_owned())),
+                ("t1".to_owned(), None),
+                ("gone".to_owned(), None),
+            ]
+        );
     }
 
     #[test]

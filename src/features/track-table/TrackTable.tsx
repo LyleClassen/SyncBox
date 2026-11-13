@@ -61,7 +61,33 @@ const COLUMNS: TableColumn<TrackTableRow>[] = [
     sortable: true,
   },
   { key: "rating", header: "Rating", width: pixel(84), sortable: true },
+  { key: "status", header: "Status", width: pixel(88), sortable: true },
 ];
+
+/**
+ * Dims unplayable rows and shows their Unplayable Reason as the row tooltip,
+ * and loads a Track on double-click.
+ */
+function rowBehaviour(
+  onLoad: (row: TrackTableRow) => void,
+): TablePlugin<TrackTableRow> {
+  return {
+    rowModel: "flat",
+    transformBodyRow: (props, item) => ({
+      ...props,
+      htmlProps: {
+        ...props.htmlProps,
+        onDoubleClick: () => onLoad(item),
+        ...(item.unplayable && {
+          className: [props.htmlProps.className, "sb-row-unplayable"]
+            .filter(Boolean)
+            .join(" "),
+          title: item.unplayable.message,
+        }),
+      },
+    }),
+  };
+}
 
 /** Shows the Rekordbox key name when hovering the Camelot key. */
 const keyNameTooltip: TablePlugin<TrackTableRow> = {
@@ -105,6 +131,7 @@ interface Props {
   isLoading: boolean;
   emptyTitle: string;
   emptyDescription?: string;
+  onLoad: (row: TrackTableRow) => void;
 }
 
 export function TrackTable({
@@ -112,6 +139,7 @@ export function TrackTable({
   isLoading,
   emptyTitle,
   emptyDescription,
+  onLoad,
 }: Props) {
   const [sort, setSort] = useState<SortEntry[]>([]);
   const [columnWidths, setColumnWidths] = useState(readWidths);
@@ -138,6 +166,7 @@ export function TrackTable({
   });
 
   const sorted = useMemo(() => sortRows(rows, sort), [rows, sort]);
+  const behaviour = useMemo(() => rowBehaviour(onLoad), [onLoad]);
 
   if (!isLoading && rows.length === 0) {
     return (
@@ -157,7 +186,7 @@ export function TrackTable({
         textOverflow="truncate"
         hasHover
         virtualization={virtualization}
-        plugins={{ sortable, columnResize, keyNameTooltip }}
+        plugins={{ sortable, columnResize, keyNameTooltip, behaviour }}
       />
     </div>
   );

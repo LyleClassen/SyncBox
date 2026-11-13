@@ -6,6 +6,7 @@ import {
   formatLength,
   formatRating,
   sortRows,
+  statusLabel,
   toTableRows,
 } from "./trackRows";
 
@@ -117,5 +118,42 @@ describe("sortRows", () => {
   test("does not mutate its input", () => {
     sortRows(rows, [{ sortKey: "length", direction: "descending" }]);
     expect(ids(rows)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("Unplayable Reasons", () => {
+  const offline = {
+    kind: "volumeOffline" as const,
+    detail: "E:/",
+    message: "Drive not connected: E:/",
+  };
+
+  test("rows carry the reason and a short status label", () => {
+    const [bad, good] = toTableRows([track({ id: "x" }), track({ id: "y" })], {
+      x: offline,
+    });
+    expect(bad.status).toBe("Offline");
+    expect(bad.unplayable).toEqual(offline);
+    expect(good.status).toBe("");
+    expect(good.unplayable).toBeNull();
+  });
+
+  test("each kind has its own label", () => {
+    const labels = (
+      ["streaming", "volumeOffline", "missing", "noPath"] as const
+    ).map((kind) => statusLabel({ kind, detail: null, message: "" }));
+    expect(new Set(labels).size).toBe(4);
+    expect(statusLabel(null)).toBe("");
+  });
+
+  test("playable rows sort after unplayable ones by status", () => {
+    const rows = toTableRows([track({ id: "ok" }), track({ id: "x" })], {
+      x: offline,
+    });
+    expect(
+      sortRows(rows, [{ sortKey: "status", direction: "ascending" }]).map(
+        (r) => r.id,
+      ),
+    ).toEqual(["x", "ok"]);
   });
 });

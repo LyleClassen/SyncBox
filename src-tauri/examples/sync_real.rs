@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use syncbox_lib::library::track_file::FileCheck;
 use syncbox_lib::library::{Library, local_db, rekordbox};
 
 fn main() {
@@ -45,6 +46,28 @@ fn main() {
     let tracks = local_db::all_tracks(&conn).unwrap();
     for t in tracks.iter().take(5) {
         println!("  {} – {} [{} {:?} bpm]", t.artist, t.title, t.key, t.bpm);
+    }
+
+    let started = std::time::Instant::now();
+    let mut check = FileCheck::on_disk();
+    let reasons: Vec<_> = tracks
+        .iter()
+        .filter_map(|t| check.reason(t.file_path.as_deref()))
+        .collect();
+    let mut by_kind = std::collections::BTreeMap::<&str, (usize, String)>::new();
+    for reason in &reasons {
+        let entry = by_kind
+            .entry(reason.kind())
+            .or_insert((0, reason.message()));
+        entry.0 += 1;
+    }
+    println!(
+        "Checked {} files in {:.2?}; unplayable:",
+        tracks.len(),
+        started.elapsed()
+    );
+    for (kind, (n, example)) in by_kind {
+        println!("  {kind}: {n} (e.g. \"{example}\")");
     }
 }
 
