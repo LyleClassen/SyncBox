@@ -5,6 +5,8 @@ pub mod commands;
 pub mod engine;
 pub mod error;
 pub mod rodio_deck;
+#[cfg(test)]
+pub(crate) mod test_audio;
 pub mod transport;
 
 use tauri::{AppHandle, Emitter};

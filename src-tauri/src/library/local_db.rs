@@ -7,6 +7,7 @@
 //!   `track_id` column holding the Rekordbox Track id. A Sync never touches
 //!   them, except to remove rows whose Track no longer exists in Rekordbox.
 //!   New `sb_*` tables are picked up automatically; there is no list to update.
+//!   `sb_peaks` holds each Track's Peaks.
 
 use std::path::Path;
 
@@ -55,6 +56,12 @@ CREATE TABLE IF NOT EXISTS rb_cue (
     comment      TEXT
 );
 CREATE INDEX IF NOT EXISTS rb_cue_track ON rb_cue (track_id);
+CREATE TABLE IF NOT EXISTS sb_peaks (
+    track_id     TEXT PRIMARY KEY,  -- Rekordbox Track id (ADR-0003)
+    peaks        BLOB NOT NULL,     -- i16 little-endian, value × 1000
+    duration_sec REAL NOT NULL,     -- decoded length
+    version      INTEGER NOT NULL   -- Peaks algorithm version
+);
 "#;
 
 const COPIED_TABLES: [&str; 7] = [
@@ -394,6 +401,86 @@ pub fn all_tracks(conn: &Connection) -> rusqlite::Result<Vec<TrackRow>> {
     conn.prepare(&sql)?.query_map([], track_row)?.collect()
 }
 
+// ── Peaks ────────────────────────────────────────────────────────────────────
+
+/// A Track's stored Peaks (encoded) and duration in seconds, if they were
+/// computed with algorithm `version`. Peaks from another version count as
+/// missing.
+pub fn read_peaks(
+    conn: &Connection,
+    track_id: &str,
+    version: i64,
+) -> rusqlite::Result<Option<(Vec<u8>, f64)>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT peaks, duration_sec FROM sb_peaks WHERE track_id = ?1 AND version = ?2",
+        params![track_id, version],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+}
+
+/// Whether a Track has Peaks from algorithm `version`.
+pub fn has_peaks(conn: &Connection, track_id: &str, version: i64) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sb_peaks WHERE track_id = ?1 AND version = ?2)",
+        params![track_id, version],
+        |r| r.get(0),
+    )
+}
+
+/// Stores a Track's Peaks, replacing any it had. Writes nothing if the Track
+/// is no longer in the Local DB (a Sync removed it while Peaks were being
+/// computed), so no orphan row is left. Returns whether a row was written.
+pub fn write_peaks(
+    conn: &Connection,
+    track_id: &str,
+    peaks: &[u8],
+    duration_sec: f64,
+    version: i64,
+) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "INSERT OR REPLACE INTO sb_peaks (track_id, peaks, duration_sec, version)
+         SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM rb_track WHERE id = ?1)",
+        params![track_id, peaks, duration_sec, version],
+    )?;
+    Ok(n > 0)
+}
+
+/// A Cue as the UI shows it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CueRow {
+    pub id: String,
+    pub position_sec: f64,
+    /// End of a loop, if the Cue is a loop.
+    pub end_sec: Option<f64>,
+    /// 0 = memory Cue, 1–8 = hot Cue slot A–H.
+    pub kind: i64,
+    /// `#RRGGBB`, if Rekordbox gave the Cue a colour.
+    pub color: Option<String>,
+    pub comment: Option<String>,
+}
+
+/// A Track's Cues in position order.
+pub fn track_cues(conn: &Connection, track_id: &str) -> rusqlite::Result<Vec<CueRow>> {
+    conn.prepare(
+        "SELECT id, position_sec, end_sec, kind, color, comment FROM rb_cue
+         WHERE track_id = ?1 ORDER BY position_sec, id",
+    )?
+    .query_map([track_id], |r| {
+        Ok(CueRow {
+            id: r.get(0)?,
+            position_sec: r.get(1)?,
+            end_sec: r.get(2)?,
+            kind: r.get(3)?,
+            color: r.get(4)?,
+            comment: r.get(5)?,
+        })
+    })?
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,10 +489,9 @@ mod tests {
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         init(&conn).unwrap();
-        // Stand-ins for SyncBox-only tables (Peaks, Beat Grid).
+        // Stand-ins for SyncBox-only tables not built yet (Beat Grid, settings).
         conn.execute_batch(
-            "CREATE TABLE sb_peaks (track_id TEXT PRIMARY KEY, peaks BLOB);
-             CREATE TABLE sb_beat_grid (track_id TEXT, beat INTEGER);
+            "CREATE TABLE sb_beat_grid (track_id TEXT, beat INTEGER);
              CREATE TABLE sb_settings (key TEXT PRIMARY KEY, value TEXT);",
         )
         .unwrap();
@@ -511,7 +597,7 @@ mod tests {
         let mut conn = db();
         sync(&mut conn, &snapshot(&["t1", "t2", "t3"]));
         conn.execute_batch(
-            "INSERT INTO sb_peaks VALUES ('t1', x'00'), ('t2', x'01');
+            "INSERT INTO sb_peaks VALUES ('t1', x'00', 1.0, 1), ('t2', x'01', 1.0, 1);
              INSERT INTO sb_beat_grid VALUES ('t2', 1), ('t3', 1);
              INSERT INTO sb_settings VALUES ('volume', '0.5');",
         )
@@ -544,7 +630,7 @@ mod tests {
     fn failed_sync_leaves_previous_local_db() {
         let mut conn = db();
         sync(&mut conn, &snapshot(&["t1", "t2"]));
-        conn.execute("INSERT INTO sb_peaks VALUES ('t2', x'00')", [])
+        conn.execute("INSERT INTO sb_peaks VALUES ('t2', x'00', 1.0, 1)", [])
             .unwrap();
 
         // A duplicate Cue id violates the primary key part-way through the Sync.
@@ -645,5 +731,60 @@ mod tests {
         );
         assert_eq!(track_source(&conn, "t2").unwrap(), Some((None, None)));
         assert_eq!(track_source(&conn, "nope").unwrap(), None);
+    }
+
+    #[test]
+    fn peaks_round_trip() {
+        let mut conn = db();
+        sync(&mut conn, &snapshot(&["t1"]));
+        assert!(!has_peaks(&conn, "t1", 1).unwrap());
+        assert!(write_peaks(&conn, "t1", &[1, 2, 3, 4], 245.5, 1).unwrap());
+        assert!(has_peaks(&conn, "t1", 1).unwrap());
+        assert_eq!(
+            read_peaks(&conn, "t1", 1).unwrap(),
+            Some((vec![1, 2, 3, 4], 245.5))
+        );
+        // Writing again replaces the row.
+        assert!(write_peaks(&conn, "t1", &[9], 1.0, 1).unwrap());
+        assert_eq!(read_peaks(&conn, "t1", 1).unwrap(), Some((vec![9], 1.0)));
+    }
+
+    #[test]
+    fn peaks_from_another_version_count_as_missing() {
+        let mut conn = db();
+        sync(&mut conn, &snapshot(&["t1"]));
+        write_peaks(&conn, "t1", &[1, 2], 1.0, 1).unwrap();
+        assert!(!has_peaks(&conn, "t1", 2).unwrap());
+        assert_eq!(read_peaks(&conn, "t1", 2).unwrap(), None);
+    }
+
+    #[test]
+    fn peaks_for_unknown_track_are_not_written() {
+        let mut conn = db();
+        sync(&mut conn, &snapshot(&["t1"]));
+        assert!(!write_peaks(&conn, "gone", &[1, 2], 1.0, 1).unwrap());
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sb_peaks"), 0);
+    }
+
+    #[test]
+    fn reads_track_cues_in_position_order() {
+        let mut conn = db();
+        let mut snap = snapshot(&["t1", "t2"]);
+        snap.cues.push(Cue {
+            id: "c-early".into(),
+            track_id: "t1".into(),
+            position_sec: 0.5,
+            end_sec: Some(4.5),
+            kind: 0,
+            color: Some("#FF0000".into()),
+            comment: Some("Loop".into()),
+        });
+        sync(&mut conn, &snap);
+        let cues = track_cues(&conn, "t1").unwrap();
+        let ids: Vec<_> = cues.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["c-early", "c-t1"]);
+        assert_eq!(cues[0].end_sec, Some(4.5));
+        assert_eq!(cues[0].color.as_deref(), Some("#FF0000"));
+        assert!(track_cues(&conn, "nope").unwrap().is_empty());
     }
 }
