@@ -7,6 +7,9 @@ export interface WaveformPalette {
   playhead: string;
   /** The minimap's visible-window shading, drawn at reduced alpha. */
   window: string;
+  /** Beat Grid lines, drawn at reduced alpha; downbeats more strongly. */
+  beat: string;
+  downbeat: string;
 }
 
 const TOKENS: Record<keyof WaveformPalette, string> = {
@@ -14,6 +17,8 @@ const TOKENS: Record<keyof WaveformPalette, string> = {
   played: "--color-accent",
   playhead: "--color-text-primary",
   window: "--color-accent",
+  beat: "--color-text-primary",
+  downbeat: "--color-text-primary",
 };
 
 /** Resolves the palette's tokens as seen from `el`. */
@@ -31,6 +36,8 @@ export function readPalette(el: Element): WaveformPalette {
       played: read(TOKENS.played),
       playhead: read(TOKENS.playhead),
       window: read(TOKENS.window),
+      beat: read(TOKENS.beat),
+      downbeat: read(TOKENS.downbeat),
     };
   } finally {
     probe.remove();

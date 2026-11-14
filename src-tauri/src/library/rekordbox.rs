@@ -56,6 +56,20 @@ fn playlist_kind(attribute: PlaylistType) -> Option<PlaylistKind> {
     }
 }
 
+/// The absolute path of a Track's ANLZ file. Rekordbox stores it
+/// (`djmdContent.AnalysisDataPath`) relative to the `share` directory next to
+/// `master.db`, with a leading `/`, e.g. `/PIONEER/USBANLZ/ab1/…/ANLZ0000.DAT`.
+/// This mirrors how `rbox`'s `MasterDb` resolves it; that helper is private
+/// to `MasterDb`, which a Sync doesn't use.
+pub fn resolve_anlz_path(master_db: &Path, raw: Option<&str>) -> Option<String> {
+    let rel = raw?.trim().trim_start_matches(['/', '\\']);
+    if rel.is_empty() {
+        return None;
+    }
+    let share = master_db.parent().unwrap_or(Path::new(".")).join("share");
+    Some(share.join(rel).to_string_lossy().into_owned())
+}
+
 fn named<T>(rows: Vec<T>, f: impl Fn(T) -> Option<Named>) -> Vec<Named> {
     rows.into_iter().filter_map(f).collect()
 }
@@ -164,6 +178,7 @@ pub fn read_snapshot(
             bitrate: c.bit_rate,
             rating: c.rating.map(i64::from),
             file_path: c.folder_path,
+            anlz_path: resolve_anlz_path(path, c.analysis_data_path.as_deref()),
         })
         .collect();
 
@@ -211,4 +226,28 @@ pub fn read_snapshot(
         }),
         cues: map_cues(&raw_cues, &color_codes),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_anlz_path_against_share_dir() {
+        let db = Path::new("C:/rb/master.db");
+        let got = resolve_anlz_path(db, Some("/PIONEER/USBANLZ/ab1/1234/ANLZ0000.DAT")).unwrap();
+        assert_eq!(
+            PathBuf::from(got),
+            Path::new("C:/rb/share").join("PIONEER/USBANLZ/ab1/1234/ANLZ0000.DAT")
+        );
+    }
+
+    #[test]
+    fn missing_or_empty_anlz_path_is_none() {
+        let db = Path::new("C:/rb/master.db");
+        assert_eq!(resolve_anlz_path(db, None), None);
+        assert_eq!(resolve_anlz_path(db, Some("")), None);
+        assert_eq!(resolve_anlz_path(db, Some("  ")), None);
+        assert_eq!(resolve_anlz_path(db, Some("/")), None);
+    }
 }

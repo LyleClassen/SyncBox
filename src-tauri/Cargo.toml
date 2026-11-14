@@ -22,7 +22,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rbox = { version = "0.3", default-features = false, features = ["master-db", "bundled-vendored-openssl"] }
+rbox = { version = "0.3", default-features = false, features = ["master-db", "anlz", "bundled-vendored-openssl"] }
 rusqlite = "0.40"
 thiserror = "2.0.21"
 log = "0.4.35"
