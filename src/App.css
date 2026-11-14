@@ -20,36 +20,112 @@ body {
   width: 100%;
 }
 
-/* Player: transport, Track, position, volume. The Waveform (#6) goes above. */
+/* Player: the Waveform above transport, Track, time and volume. */
 .sb-player {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-4);
+  flex-direction: column;
+  gap: var(--spacing-3);
   padding: var(--spacing-3) var(--spacing-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-container);
   background: var(--color-background-surface);
 }
 
+.sb-player-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+}
+
 .sb-player-track {
   display: flex;
   flex-direction: column;
-  width: 240px;
+  flex: 1;
   min-width: 0;
+}
+
+.sb-player-time {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
   flex-shrink: 0;
 }
 
-.sb-player-seek {
+/* Waveform: a minimap of the whole Track above the zoomed view. */
+.sb-waveform {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-1);
   min-width: 0;
 }
 
-.sb-player-seek > :nth-child(2) {
-  flex: 1;
-  min-width: 0;
+.sb-waveform-minimap,
+.sb-waveform-zoomed {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--color-background-muted);
+}
+
+.sb-waveform-minimap {
+  height: 36px;
+}
+
+.sb-waveform-zoomed {
+  height: 96px;
+}
+
+.sb-waveform canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.sb-waveform-minimap canvas {
+  cursor: pointer;
+}
+
+.sb-waveform-zoomed canvas {
+  cursor: grab;
+}
+
+.sb-waveform-zoomed canvas:active {
+  cursor: grabbing;
+}
+
+.sb-waveform-minimap.is-disabled canvas,
+.sb-waveform-zoomed.is-disabled canvas {
+  cursor: default;
+}
+
+.sb-waveform-zoom {
+  position: absolute;
+  top: 50%;
+  left: var(--spacing-1);
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-0-5);
+  z-index: 1;
+}
+
+.sb-waveform-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-12);
+  text-align: center;
+  pointer-events: none;
+}
+
+.sb-waveform-error {
+  color: var(--color-text-error);
 }
 
 .sb-player-volume {
