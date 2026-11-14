@@ -14,6 +14,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { PlayerBar } from "./features/player/PlayerBar";
 import { PlaylistSidebar } from "./features/sidebar/PlaylistSidebar";
 import { TrackTable } from "./features/track-table/TrackTable";
 import type { PlaylistNode } from "./library/api";
@@ -24,6 +25,8 @@ import {
   toTableRows,
 } from "./library/trackRows";
 import { ALL_TRACKS_ID, useLibrary } from "./library/useLibrary";
+import type { PlaybackError } from "./playback/api";
+import { usePlayback } from "./playback/usePlayback";
 import "./App.css";
 
 function findName(nodes: PlaylistNode[], id: string): string | null {
@@ -37,8 +40,16 @@ function findName(nodes: PlaylistNode[], id: string): string | null {
 
 export default function App() {
   const library = useLibrary();
-  const { sync, selectedId, tree, checkTrack } = library;
+  const { sync, selectedId, tree, noteReason } = library;
   const toast = useToast();
+  const playback = usePlayback((e) =>
+    toast({ type: "error", uniqueID: "playback", body: e.message }),
+  );
+  // The latest Track asked for. Only the latest load can win, so when the
+  // engine reports a loaded Track it's this one.
+  const [requested, setRequested] = useState<TrackTableRow | null>(null);
+  const loaded =
+    requested && requested.id === playback.state.trackId ? requested : null;
   const isSyncing = sync.status === "running";
 
   const [filter, setFilter] = useState("");
@@ -52,27 +63,24 @@ export default function App() {
     [library.tracks, library.reasons],
   );
 
-  // Check the file again on every load: the row's reason may be stale.
+  // Loading checks the file again, so the row's reason is updated either way.
+  const { load } = playback;
   const loadTrack = useCallback(
     async (row: TrackTableRow) => {
-      let reason: Awaited<ReturnType<typeof checkTrack>>;
+      setRequested(row);
       try {
-        reason = await checkTrack(row.id);
+        if (await load(row.id)) noteReason(row.id, null);
       } catch (e) {
-        toast({ type: "error", body: `Could not check the file: ${e}` });
-        return;
-      }
-      if (reason) {
+        const err = e as PlaybackError;
+        if (err.reason) noteReason(row.id, err.reason);
         toast({
           type: "error",
           uniqueID: "track-load",
-          body: `Can't load “${row.title || "Untitled"}”. ${reason.message}`,
+          body: `Can't load “${row.title || "Untitled"}”. ${err.message}`,
         });
-        return;
       }
-      // Playback (#4) loads the Track here.
     },
-    [checkTrack, toast],
+    [load, noteReason, toast],
   );
   const rows = useMemo(
     () => filterRows(allRows, deferredFilter),
@@ -109,10 +117,11 @@ export default function App() {
           hasValueLabel
         />
       )}
-      {/* Player placeholder until playback lands (#4). */}
-      <section className="sb-player" aria-label="Player">
-        <Text type="supporting">No Track loaded</Text>
-      </section>
+      <PlayerBar
+        playback={playback}
+        title={loaded?.title ?? null}
+        artist={loaded?.artist ?? null}
+      />
     </div>
   );
 

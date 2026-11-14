@@ -20,15 +20,44 @@ body {
   width: 100%;
 }
 
+/* Player: transport, Track, position, volume. The Waveform (#6) goes above. */
 .sb-player {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 120px;
-  padding: var(--spacing-4);
-  border: 1px dashed var(--color-border);
+  gap: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-container);
   background: var(--color-background-surface);
+}
+
+.sb-player-track {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.sb-player-seek {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.sb-player-seek > :nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.sb-player-volume {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
 }
 
 .sb-sidebar {
