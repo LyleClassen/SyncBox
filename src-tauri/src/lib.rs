@@ -1,5 +1,6 @@
 pub mod library;
 pub mod playback;
+pub mod waveform;
 
 use tauri::Manager;
 
@@ -17,6 +18,7 @@ pub fn run() {
             let conn = local_db::open(&data_dir.join("library.db"))?;
             app.manage(Library::new(conn));
             app.manage(playback::start(app.handle().clone()));
+            app.manage(waveform::PeaksWorker::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -33,6 +35,7 @@ pub fn run() {
             play::playback_seek,
             play::playback_set_volume,
             play::playback_state,
+            waveform::commands::get_waveform_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

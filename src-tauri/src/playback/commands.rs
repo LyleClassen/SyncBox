@@ -12,6 +12,7 @@ use super::transport::PlayerState;
 use crate::library::Library;
 use crate::library::local_db;
 use crate::library::track_file::FileCheck;
+use crate::waveform::PeaksWorker;
 
 /// Event sent with a [`PlayerState`] when the loaded Track, status or
 /// duration changes.
@@ -52,15 +53,25 @@ fn open_track(app: &AppHandle, track_id: &str) -> Result<Opened, PlaybackError> 
 /// Returns `true` once it's loaded. If another load starts before this one
 /// finishes, this one is dropped and returns `false` (even if it failed):
 /// only the latest load counts.
+///
+/// A Track loaded for the first time has its Peaks computed in the
+/// background afterwards; the load doesn't wait for them.
 #[tauri::command]
 pub async fn playback_load(app: AppHandle, track_id: String) -> Result<bool, PlaybackError> {
     let id = track_id.clone();
     let ticket = on_engine(app.clone(), move |core| core.transport.begin_load(&id)).await?;
     let handle = app.clone();
-    let opened = tauri::async_runtime::spawn_blocking(move || open_track(&handle, &track_id))
+    let id = track_id.clone();
+    let opened = tauri::async_runtime::spawn_blocking(move || open_track(&handle, &id))
         .await
         .unwrap_or(Err(PlaybackError::EngineStopped));
-    on_engine(app, move |core| core.finish_load(ticket, opened)).await?
+    let path = opened.as_ref().ok().map(|o| o.path.clone());
+    let loaded = on_engine(app.clone(), move |core| core.finish_load(ticket, opened)).await??;
+    if loaded && let Some(path) = path {
+        app.state::<PeaksWorker>()
+            .ensure(app.clone(), track_id, path);
+    }
+    Ok(loaded)
 }
 
 #[tauri::command]
