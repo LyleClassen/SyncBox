@@ -108,7 +108,80 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-0-5);
-  z-index: 1;
+  z-index: 2;
+}
+
+/* Cues: view-only markers over the Waveform, coloured by the Cue. */
+.sb-cue-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sb-cue {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  margin-left: -1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.sb-cue:disabled {
+  pointer-events: none;
+  cursor: default;
+}
+
+.sb-cue:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.sb-cue-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--cue-color);
+}
+
+.sb-cue-flag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0 4px;
+  border-bottom-right-radius: 3px;
+  background: var(--cue-color);
+  /* Deliberate literal: Rekordbox Cue colours are all bright. */
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+}
+
+.sb-cue.is-memory .sb-cue-flag {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 0;
+}
+
+.sb-cue-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  opacity: 0.7;
+  background: var(--cue-color);
+  transform: translateX(-1px);
 }
 
 .sb-waveform-overlay {
