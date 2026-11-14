@@ -50,6 +50,15 @@ export default function App() {
   const [requested, setRequested] = useState<TrackTableRow | null>(null);
   const loaded =
     requested && requested.id === playback.state.trackId ? requested : null;
+  // Why the latest load failed. A failed load leaves the engine idle with no
+  // Track, so this can't be read from playback state.
+  const [loadError, setLoadError] = useState<{
+    trackId: string;
+    title: string;
+    message: string;
+  } | null>(null);
+  const shownLoadError =
+    loadError && loadError.trackId === requested?.id ? loadError : null;
   const isSyncing = sync.status === "running";
 
   const [filter, setFilter] = useState("");
@@ -68,11 +77,17 @@ export default function App() {
   const loadTrack = useCallback(
     async (row: TrackTableRow) => {
       setRequested(row);
+      setLoadError(null);
       try {
         if (await load(row.id)) noteReason(row.id, null);
       } catch (e) {
         const err = e as PlaybackError;
         if (err.reason) noteReason(row.id, err.reason);
+        setLoadError({
+          trackId: row.id,
+          title: "Can't load this Track",
+          message: err.reason?.message ?? err.message,
+        });
         toast({
           type: "error",
           uniqueID: "track-load",
@@ -121,6 +136,7 @@ export default function App() {
         playback={playback}
         title={loaded?.title ?? null}
         artist={loaded?.artist ?? null}
+        loadError={shownLoadError}
       />
     </div>
   );
