@@ -338,6 +338,26 @@ fn track_row(r: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
     })
 }
 
+/// What playback needs to know about a Track: its raw Rekordbox file path
+/// and the length Rekordbox stored, in seconds. `None` if there's no such Track.
+pub fn track_source(
+    conn: &Connection,
+    track_id: &str,
+) -> rusqlite::Result<Option<(Option<String>, Option<u64>)>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT file_path, length_sec FROM rb_track WHERE id = ?1",
+        [track_id],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get::<_, Option<i64>>(1)?.map(|s| s.max(0) as u64),
+            ))
+        },
+    )
+    .optional()
+}
+
 /// Each Track's raw Rekordbox file path. A Track that doesn't exist gets
 /// `None`, the same as one with no path.
 pub fn track_file_paths(
@@ -610,5 +630,20 @@ mod tests {
         assert!(is_empty(&conn).unwrap());
         sync(&mut conn, &snapshot(&["t1"]));
         assert!(!is_empty(&conn).unwrap());
+    }
+
+    #[test]
+    fn track_source_for_playback() {
+        let mut conn = db();
+        let mut snap = snapshot(&["t1", "t2"]);
+        snap.tracks[0].file_path = Some("E:\\Music\\a.aiff".into());
+        snap.tracks[0].length_sec = Some(245);
+        sync(&mut conn, &snap);
+        assert_eq!(
+            track_source(&conn, "t1").unwrap(),
+            Some((Some("E:\\Music\\a.aiff".into()), Some(245)))
+        );
+        assert_eq!(track_source(&conn, "t2").unwrap(), Some((None, None)));
+        assert_eq!(track_source(&conn, "nope").unwrap(), None);
     }
 }

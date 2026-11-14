@@ -171,11 +171,12 @@ export function useLibrary() {
     };
   }, [tracks]);
 
-  /** Checks one Track's file now, before loading it. `null` means playable. */
-  const checkTrack = useCallback(
-    async (trackId: string): Promise<UnplayableReason | null> => {
-      const result = await checkTrackFiles([trackId]);
-      const reason = result[trackId] ?? null;
+  /**
+   * Records what a load found out about a Track's file: its Unplayable
+   * Reason, or `null` once it has loaded.
+   */
+  const noteReason = useCallback(
+    (trackId: string, reason: UnplayableReason | null) => {
       setReasons((prev) => {
         if (prev[trackId]?.message === reason?.message) return prev;
         const next = { ...prev };
@@ -183,7 +184,6 @@ export function useLibrary() {
         else delete next[trackId];
         return next;
       });
-      return reason;
     },
     [],
   );
@@ -194,7 +194,7 @@ export function useLibrary() {
     select,
     tracks,
     reasons,
-    checkTrack,
+    noteReason,
     isLoadingTracks,
     loadError,
     sync,
