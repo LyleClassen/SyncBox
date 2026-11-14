@@ -124,8 +124,23 @@ export function Waveform({
   const isPlaying = status === "playing";
 
   // Drawing reads the latest inputs from here, so React renders never draw.
-  const live = useRef({ source, palette, zoom: zoom.zoom, span, isPlaying });
-  live.current = { source, palette, zoom: zoom.zoom, span, isPlaying };
+  const beatGrid = data?.beatGrid ?? null;
+  const live = useRef({
+    source,
+    beatGrid,
+    palette,
+    zoom: zoom.zoom,
+    span,
+    isPlaying,
+  });
+  live.current = {
+    source,
+    beatGrid,
+    palette,
+    zoom: zoom.zoom,
+    span,
+    isPlaying,
+  };
   const drag = useRef<Drag | null>(null);
   const dpr = useRef(1);
   const cache = useMemo(() => new MinimapCache(), []);
@@ -141,6 +156,8 @@ export function Waveform({
     if (zctx) {
       drawZoomed(zctx, {
         source: l.source,
+        beatGrid: l.beatGrid,
+        duration: l.span,
         width: zc.width,
         height: zc.height,
         dpr: dpr.current,
@@ -188,7 +205,16 @@ export function Waveform({
   // biome-ignore lint/correctness/useExhaustiveDependencies: these are the inputs drawNow reads through refs.
   useEffect(() => {
     requestDraw();
-  }, [requestDraw, source, palette, zoom.zoom, span, position, status]);
+  }, [
+    requestDraw,
+    source,
+    beatGrid,
+    palette,
+    zoom.zoom,
+    span,
+    position,
+    status,
+  ]);
 
   // Canvas backing stores follow their element size and the device pixel
   // ratio, which changes when the window moves to another monitor.

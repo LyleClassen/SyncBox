@@ -15,13 +15,25 @@ export interface Cue {
   comment: string | null;
 }
 
+export interface Beat {
+  /** Seconds from the start of the Track. */
+  timeSec: number;
+  /** Position in the bar, 1–4. 1 is a downbeat. */
+  number: number;
+}
+
+/** Rekordbox's Beat Grid, from the Track's ANLZ file. Beats are in time order. */
+export interface BeatGrid {
+  beats: Beat[];
+}
+
 export interface WaveformData {
   /** 8,000 signed values in [-1, 1]; null until computed on first load. */
   peaks: number[] | null;
   /** Seconds, from decoding the file; null until Peaks are computed. */
   duration: number | null;
-  /** Always null until the Beat Grid exists. */
-  beatGrid: null;
+  /** Null when the Track has no ANLZ data or Beat Grid. Never guessed. */
+  beatGrid: BeatGrid | null;
   cues: Cue[];
 }
 
