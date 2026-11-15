@@ -14,7 +14,8 @@ import {
   useState,
 } from "react";
 import type { PlaybackStatus } from "../../playback/api";
-import type { WaveformData } from "../../waveform/api";
+import type { Cue, WaveformData } from "../../waveform/api";
+import { visibleCueX } from "../../waveform/cues";
 import { drawMinimap, drawZoomed, MinimapCache } from "../../waveform/draw";
 import {
   minimapXToTime,
@@ -27,9 +28,12 @@ import type { WaveformStatus } from "../../waveform/status";
 import { usePlayhead } from "../../waveform/usePlayhead";
 import { useZoom } from "../../waveform/useZoom";
 import { DEFAULT_ZOOM } from "../../waveform/zoom";
+import { CueMarkers, CueMinimapTicks } from "./CueMarkers";
 
 /** Pointer movement under this many px is a click, not a drag. */
 const CLICK_SLOP = 4;
+
+const NO_CUES: Cue[] = [];
 
 const svg = {
   width: 16,
@@ -122,10 +126,22 @@ export function Waveform({
   const span = duration > 0 ? duration : (source?.duration ?? 0);
   const canSeek = !isEmpty && !error && span > 0 && status !== "loading";
   const isPlaying = status === "playing";
+  const cues = data?.cues ?? NO_CUES;
+  // Cues stay hidden under the error, empty and loading messages.
+  const showCues =
+    !isEmpty && !error && peaksStatus !== "failed" && peaksStatus !== "loading";
 
   // Drawing reads the latest inputs from here, so React renders never draw.
-  const live = useRef({ source, palette, zoom: zoom.zoom, span, isPlaying });
-  live.current = { source, palette, zoom: zoom.zoom, span, isPlaying };
+  const live = useRef({
+    source,
+    palette,
+    zoom: zoom.zoom,
+    span,
+    isPlaying,
+    cues,
+  });
+  live.current = { source, palette, zoom: zoom.zoom, span, isPlaying, cues };
+  const cueEls = useRef(new Map<string, HTMLElement>());
   const drag = useRef<Drag | null>(null);
   const dpr = useRef(1);
   const cache = useMemo(() => new MinimapCache(), []);
@@ -163,6 +179,19 @@ export function Waveform({
         cache,
       });
     }
+    // Cue markers move with the canvas, in CSS px.
+    const cssWidth = zc.width / dpr.current;
+    for (const cue of l.cues) {
+      const el = cueEls.current.get(cue.id);
+      if (!el) continue;
+      const x = visibleCueX(cue, cssWidth, at, l.zoom);
+      if (x === null) {
+        el.style.display = "none";
+      } else {
+        el.style.display = "";
+        el.style.transform = `translateX(${x}px)`;
+      }
+    }
   }, [getPlayhead, cache]);
 
   // One frame on request; keeps going while playing.
@@ -188,7 +217,17 @@ export function Waveform({
   // biome-ignore lint/correctness/useExhaustiveDependencies: these are the inputs drawNow reads through refs.
   useEffect(() => {
     requestDraw();
-  }, [requestDraw, source, palette, zoom.zoom, span, position, status]);
+  }, [
+    requestDraw,
+    source,
+    palette,
+    zoom.zoom,
+    span,
+    position,
+    status,
+    cues,
+    showCues,
+  ]);
 
   // Canvas backing stores follow their element size and the device pixel
   // ratio, which changes when the window moves to another monitor.
@@ -347,6 +386,7 @@ export function Waveform({
           aria-label="Waveform overview"
           {...handlers("minimap")}
         />
+        {showCues && <CueMinimapTicks cues={cues} duration={span} />}
       </div>
       <div className={`sb-waveform-zoomed${seekClass}`} ref={zoomedWrapRef}>
         <canvas
@@ -355,6 +395,14 @@ export function Waveform({
           aria-label="Waveform"
           {...handlers("zoomed")}
         />
+        {showCues && (
+          <CueMarkers
+            cues={cues}
+            elements={cueEls.current}
+            isEnabled={canSeek}
+            onJump={(s) => onSeek(Math.min(span, Math.max(0, s)))}
+          />
+        )}
         <div className="sb-waveform-zoom">
           <IconButton
             label="Zoom in"
