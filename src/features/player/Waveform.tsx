@@ -132,15 +132,25 @@ export function Waveform({
     !isEmpty && !error && peaksStatus !== "failed" && peaksStatus !== "loading";
 
   // Drawing reads the latest inputs from here, so React renders never draw.
+  const beatGrid = data?.beatGrid ?? null;
   const live = useRef({
     source,
+    beatGrid,
     palette,
     zoom: zoom.zoom,
     span,
     isPlaying,
     cues,
   });
-  live.current = { source, palette, zoom: zoom.zoom, span, isPlaying, cues };
+  live.current = {
+    source,
+    beatGrid,
+    palette,
+    zoom: zoom.zoom,
+    span,
+    isPlaying,
+    cues,
+  };
   const cueEls = useRef(new Map<string, HTMLElement>());
   const drag = useRef<Drag | null>(null);
   const dpr = useRef(1);
@@ -157,6 +167,8 @@ export function Waveform({
     if (zctx) {
       drawZoomed(zctx, {
         source: l.source,
+        beatGrid: l.beatGrid,
+        duration: l.span,
         width: zc.width,
         height: zc.height,
         dpr: dpr.current,
@@ -220,6 +232,7 @@ export function Waveform({
   }, [
     requestDraw,
     source,
+    beatGrid,
     palette,
     zoom.zoom,
     span,

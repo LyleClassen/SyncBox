@@ -7,7 +7,8 @@
 //!   `track_id` column holding the Rekordbox Track id. A Sync never touches
 //!   them, except to remove rows whose Track no longer exists in Rekordbox.
 //!   New `sb_*` tables are picked up automatically; there is no list to update.
-//!   `sb_peaks` holds each Track's Peaks.
+//!   `sb_peaks` holds each Track's Peaks; `sb_beat_grid` holds each Track's
+//!   Beat Grid as read from its ANLZ file.
 
 use std::path::Path;
 
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS rb_track (
     length_sec INTEGER,
     bitrate    INTEGER,
     rating     INTEGER,
-    file_path  TEXT
+    file_path  TEXT,
+    anlz_path  TEXT                -- absolute path to the ANLZ .DAT file
 );
 CREATE TABLE IF NOT EXISTS rb_artist (id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rb_album  (id TEXT PRIMARY KEY, name TEXT NOT NULL);
@@ -61,6 +63,12 @@ CREATE TABLE IF NOT EXISTS sb_peaks (
     peaks        BLOB NOT NULL,     -- i16 little-endian, value × 1000
     duration_sec REAL NOT NULL,     -- decoded length
     version      INTEGER NOT NULL   -- Peaks algorithm version
+);
+CREATE TABLE IF NOT EXISTS sb_beat_grid (
+    track_id   TEXT PRIMARY KEY,  -- Rekordbox Track id (ADR-0003)
+    anlz_path  TEXT NOT NULL,     -- the ANLZ file this was read from
+    anlz_mtime INTEGER NOT NULL,  -- its modified time, ns since UNIX epoch
+    beats      BLOB NOT NULL      -- per beat: u32 LE time_ms + u8 beat number (1-4); empty = no Beat Grid
 );
 "#;
 
@@ -85,7 +93,23 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 pub fn init(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(SCHEMA)
+    conn.execute_batch(SCHEMA)?;
+    migrate(conn)
+}
+
+/// Brings a Local DB made by an older SyncBox up to [`SCHEMA`]. `CREATE TABLE
+/// IF NOT EXISTS` never adds columns to a table that already exists.
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    let has_anlz_path: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('rb_track') WHERE name = 'anlz_path')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_anlz_path {
+        // Filled in by the next Sync; until then these Tracks show no Beat Grid.
+        conn.execute("ALTER TABLE rb_track ADD COLUMN anlz_path TEXT", [])?;
+    }
+    Ok(())
 }
 
 pub fn is_empty(conn: &Connection) -> rusqlite::Result<bool> {
@@ -169,15 +193,15 @@ pub fn replace_library(
     }
     insert_all(
         &tx,
-        "INSERT INTO rb_track (id, title, artist_id, album_id, key_id, bpm, length_sec, bitrate, rating, file_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO rb_track (id, title, artist_id, album_id, key_id, bpm, length_sec, bitrate, rating, file_path, anlz_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         &snapshot.tracks,
         Some(Phase::Tracks),
         progress,
         |s, t| {
             s.execute(params![
                 t.id, t.title, t.artist_id, t.album_id, t.key_id, t.bpm, t.length_sec, t.bitrate,
-                t.rating, t.file_path
+                t.rating, t.file_path, t.anlz_path
             ])
         },
     )?;
@@ -447,6 +471,55 @@ pub fn write_peaks(
     Ok(n > 0)
 }
 
+// ── Beat Grid ────────────────────────────────────────────────────────────────
+
+/// A Track's ANLZ file path, as the last Sync copied it. `None` if the Track
+/// doesn't exist or Rekordbox hasn't analysed it.
+pub fn track_anlz_path(conn: &Connection, track_id: &str) -> rusqlite::Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    Ok(conn
+        .query_row(
+            "SELECT anlz_path FROM rb_track WHERE id = ?1",
+            [track_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// A Track's stored Beat Grid: the ANLZ path and modified time it was read
+/// from, and the encoded beats (empty if that file has no Beat Grid).
+pub fn read_beat_grid(
+    conn: &Connection,
+    track_id: &str,
+) -> rusqlite::Result<Option<(String, i64, Vec<u8>)>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT anlz_path, anlz_mtime, beats FROM sb_beat_grid WHERE track_id = ?1",
+        [track_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .optional()
+}
+
+/// Stores a Track's Beat Grid, replacing any it had. Like [`write_peaks`],
+/// writes nothing if the Track is no longer in the Local DB. Returns whether
+/// a row was written.
+pub fn write_beat_grid(
+    conn: &Connection,
+    track_id: &str,
+    anlz_path: &str,
+    anlz_mtime: i64,
+    beats: &[u8],
+) -> rusqlite::Result<bool> {
+    let n = conn.execute(
+        "INSERT OR REPLACE INTO sb_beat_grid (track_id, anlz_path, anlz_mtime, beats)
+         SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM rb_track WHERE id = ?1)",
+        params![track_id, anlz_path, anlz_mtime, beats],
+    )?;
+    Ok(n > 0)
+}
+
 /// A Cue as the UI shows it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -489,12 +562,9 @@ mod tests {
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         init(&conn).unwrap();
-        // Stand-ins for SyncBox-only tables not built yet (Beat Grid, settings).
-        conn.execute_batch(
-            "CREATE TABLE sb_beat_grid (track_id TEXT, beat INTEGER);
-             CREATE TABLE sb_settings (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .unwrap();
+        // Stand-in for a SyncBox-only table without a track_id (settings).
+        conn.execute_batch("CREATE TABLE sb_settings (key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
         conn
     }
 
@@ -598,7 +668,7 @@ mod tests {
         sync(&mut conn, &snapshot(&["t1", "t2", "t3"]));
         conn.execute_batch(
             "INSERT INTO sb_peaks VALUES ('t1', x'00', 1.0, 1), ('t2', x'01', 1.0, 1);
-             INSERT INTO sb_beat_grid VALUES ('t2', 1), ('t3', 1);
+             INSERT INTO sb_beat_grid VALUES ('t2', 'a.DAT', 1, x''), ('t3', 'b.DAT', 1, x'');
              INSERT INTO sb_settings VALUES ('volume', '0.5');",
         )
         .unwrap();
@@ -764,6 +834,65 @@ mod tests {
         sync(&mut conn, &snapshot(&["t1"]));
         assert!(!write_peaks(&conn, "gone", &[1, 2], 1.0, 1).unwrap());
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM sb_peaks"), 0);
+    }
+
+    #[test]
+    fn beat_grid_round_trip() {
+        let mut conn = db();
+        let mut snap = snapshot(&["t1", "t2"]);
+        snap.tracks[0].anlz_path = Some("C:/rb/share/ANLZ0000.DAT".into());
+        sync(&mut conn, &snap);
+        assert_eq!(
+            track_anlz_path(&conn, "t1").unwrap().as_deref(),
+            Some("C:/rb/share/ANLZ0000.DAT")
+        );
+        assert_eq!(track_anlz_path(&conn, "t2").unwrap(), None);
+        assert_eq!(track_anlz_path(&conn, "nope").unwrap(), None);
+
+        assert_eq!(read_beat_grid(&conn, "t1").unwrap(), None);
+        assert!(write_beat_grid(&conn, "t1", "a.DAT", 42, &[1, 2, 3, 4, 5]).unwrap());
+        assert_eq!(
+            read_beat_grid(&conn, "t1").unwrap(),
+            Some(("a.DAT".into(), 42, vec![1, 2, 3, 4, 5]))
+        );
+        // Writing again replaces the row; an empty grid is stored too.
+        assert!(write_beat_grid(&conn, "t1", "a.DAT", 43, &[]).unwrap());
+        assert_eq!(
+            read_beat_grid(&conn, "t1").unwrap(),
+            Some(("a.DAT".into(), 43, vec![]))
+        );
+    }
+
+    #[test]
+    fn beat_grid_for_unknown_track_is_not_written() {
+        let mut conn = db();
+        sync(&mut conn, &snapshot(&["t1"]));
+        assert!(!write_beat_grid(&conn, "gone", "a.DAT", 1, &[1]).unwrap());
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sb_beat_grid"), 0);
+    }
+
+    #[test]
+    fn migrates_old_rb_track_without_anlz_path() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE rb_track (
+                id TEXT PRIMARY KEY, title TEXT, artist_id TEXT, album_id TEXT, key_id TEXT,
+                bpm REAL, length_sec INTEGER, bitrate INTEGER, rating INTEGER, file_path TEXT
+             );
+             INSERT INTO rb_track (id, title) VALUES ('old', 'Old');",
+        )
+        .unwrap();
+        init(&conn).unwrap();
+        // Running init again is a no-op.
+        init(&conn).unwrap();
+        assert_eq!(track_anlz_path(&conn, "old").unwrap(), None);
+        let mut snap = snapshot(&["t1"]);
+        snap.tracks[0].anlz_path = Some("x.DAT".into());
+        sync(&mut conn, &snap);
+        assert_eq!(
+            track_anlz_path(&conn, "t1").unwrap().as_deref(),
+            Some("x.DAT")
+        );
     }
 
     #[test]

@@ -62,6 +62,9 @@ pub struct Track {
     pub bitrate: Option<i64>,
     pub rating: Option<i64>,
     pub file_path: Option<String>,
+    /// Absolute path to the Track's ANLZ `.DAT` file, if Rekordbox analysed it.
+    /// Only the path is copied; the file is read when the Track is loaded.
+    pub anlz_path: Option<String>,
 }
 
 /// A named lookup row (artist, album or key).

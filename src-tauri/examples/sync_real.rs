@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use syncbox_lib::library::track_file::FileCheck;
 use syncbox_lib::library::{Library, local_db, rekordbox};
+use syncbox_lib::waveform::beat_grid;
 
 fn main() {
     let master_db = match std::env::args().nth(1) {
@@ -46,6 +47,31 @@ fn main() {
     let tracks = local_db::all_tracks(&conn).unwrap();
     for t in tracks.iter().take(5) {
         println!("  {} – {} [{} {:?} bpm]", t.artist, t.title, t.key, t.bpm);
+    }
+
+    // The Beat Grid of the first analysed Track, read the way a Track load does.
+    let analysed = tracks.iter().find(|t| {
+        local_db::track_anlz_path(&conn, &t.id)
+            .ok()
+            .flatten()
+            .is_some()
+    });
+    drop(conn);
+    match analysed {
+        Some(t) => match beat_grid::ensure_beat_grid(&library, &t.id) {
+            Ok(Some(grid)) => {
+                let downbeats = grid.beats.iter().filter(|b| b.number == 1).count();
+                println!(
+                    "Beat Grid of {:?}: {} beats, {downbeats} downbeats; first: {:?}",
+                    t.title,
+                    grid.beats.len(),
+                    grid.beats.iter().take(4).collect::<Vec<_>>()
+                );
+            }
+            Ok(None) => println!("{:?} has an ANLZ path but no readable Beat Grid", t.title),
+            Err(e) => println!("reading the Beat Grid failed: {e}"),
+        },
+        None => println!("No Track has an ANLZ path"),
     }
 
     let started = std::time::Instant::now();

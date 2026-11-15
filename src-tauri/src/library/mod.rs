@@ -1,5 +1,6 @@
 //! The Rekordbox Library, the Local DB, and Sync between them.
 
+pub mod anlz;
 pub mod commands;
 pub mod cues;
 pub mod error;

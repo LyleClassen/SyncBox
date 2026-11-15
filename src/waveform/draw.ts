@@ -1,13 +1,17 @@
 // Imperative canvas drawing for the Waveform. Sizes are device pixels. All
 // amplitude and colour comes from the WaveformSource; overlay colours come
 // from the palette.
-import { peakRangeForColumn, timeToMinimapX } from "./geometry";
+import type { Beat, BeatGrid } from "./api";
+import { peakRangeForColumn, timeToMinimapX, visibleBeats } from "./geometry";
 import type { WaveformPalette } from "./palette";
 import type { WaveformSource } from "./source";
 
 /** Minimap visible-window shading alpha, and its edges. */
 const WINDOW_ALPHA = 0.15;
 const WINDOW_EDGE_ALPHA = 0.5;
+/** Beat Grid line alpha: downbeats stand out from other beats. */
+const DOWNBEAT_ALPHA = 0.5;
+const BEAT_ALPHA = 0.2;
 
 /**
  * Batches bars of one colour into a single path, so a single-colour source
@@ -74,8 +78,69 @@ function playheadLine(
   ctx.fillRect(Math.round(x - w / 2), 0, w, height);
 }
 
+/**
+ * One kind of Beat Grid line (downbeats or other beats) at `x` device px,
+ * batched into a single path.
+ */
+function beatLines(
+  ctx: CanvasRenderingContext2D,
+  xs: number[],
+  lineWidth: number,
+  height: number,
+  color: string,
+  alpha: number,
+) {
+  if (xs.length === 0) return;
+  const left = Math.floor(lineWidth / 2);
+  ctx.beginPath();
+  for (const x of xs) ctx.rect(x - left, 0, lineWidth, height);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * The Beat Grid over the zoomed view. Placed with the same `pxPerSec` and
+ * `origin` as the Waveform's columns, so it stays locked to them at every
+ * zoom level. Only beats within the Track (`[0, duration]`) are drawn.
+ */
+function drawBeatGrid(
+  ctx: CanvasRenderingContext2D,
+  beats: readonly Beat[],
+  origin: number,
+  pxPerSec: number,
+  width: number,
+  height: number,
+  dpr: number,
+  duration: number,
+  palette: WaveformPalette,
+) {
+  const downWidth = Math.max(2, Math.round(2 * dpr));
+  const beatWidth = Math.max(1, Math.round(dpr));
+  // Widen the window by a line's width so lines at the edges still show.
+  const pad = downWidth / pxPerSec;
+  const start = Math.max(0, origin / pxPerSec - pad);
+  const end = Math.min(duration, (origin + width) / pxPerSec + pad);
+  const [i0, i1] = visibleBeats(beats, start, end);
+  const down: number[] = [];
+  const other: number[] = [];
+  for (let i = i0; i < i1; i++) {
+    const b = beats[i];
+    const x = Math.round(b.timeSec * pxPerSec) - origin;
+    if (x < -downWidth || x >= width + downWidth) continue;
+    (b.number === 1 ? down : other).push(x);
+  }
+  beatLines(ctx, other, beatWidth, height, palette.beat, BEAT_ALPHA);
+  beatLines(ctx, down, downWidth, height, palette.downbeat, DOWNBEAT_ALPHA);
+}
+
 export interface ZoomedFrame {
   source: WaveformSource | null;
+  /** Null when the Track has no Beat Grid; none is guessed. */
+  beatGrid: BeatGrid | null;
+  /** Seconds the Track lasts; the Beat Grid is clipped to it. */
+  duration: number;
   width: number;
   height: number;
   dpr: number;
@@ -89,16 +154,26 @@ export interface ZoomedFrame {
 /** The zoomed view: the Track scrolled under a fixed centre playhead. */
 export function drawZoomed(
   ctx: CanvasRenderingContext2D,
-  { source, width, height, dpr, position, zoom, palette }: ZoomedFrame,
+  {
+    source,
+    beatGrid,
+    duration,
+    width,
+    height,
+    dpr,
+    position,
+    zoom,
+    palette,
+  }: ZoomedFrame,
 ) {
   ctx.clearRect(0, 0, width, height);
   const half = Math.floor(width / 2);
+  const pxPerSec = zoom * dpr;
+  // Track column at screen x = 0. Anchored to whole Track columns so bar
+  // shapes don't shimmer while scrolling.
+  const origin = Math.floor(position * pxPerSec) - half;
   if (source) {
-    const pxPerSec = zoom * dpr;
     const total = source.duration * pxPerSec;
-    // Track column at screen x = 0. Anchored to whole Track columns so bar
-    // shapes don't shimmer while scrolling.
-    const origin = Math.floor(position * pxPerSec) - half;
     const bars = new Bars(ctx);
     const start = Math.max(0, -origin);
     const end = Math.min(width, Math.ceil(total - origin));
@@ -113,6 +188,21 @@ export function drawZoomed(
       bar(bars, source.color(index, x < half), x, amp, height);
     }
     bars.flush();
+  }
+  // Needs only beat times, so it draws while Peaks are still computing.
+  const gridSpan = source?.duration ?? duration;
+  if (beatGrid && beatGrid.beats.length > 0 && gridSpan > 0) {
+    drawBeatGrid(
+      ctx,
+      beatGrid.beats,
+      origin,
+      pxPerSec,
+      width,
+      height,
+      dpr,
+      gridSpan,
+      palette,
+    );
   }
   playheadLine(ctx, half, height, dpr, palette.playhead);
 }

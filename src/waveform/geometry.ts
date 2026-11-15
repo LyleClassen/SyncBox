@@ -61,6 +61,34 @@ export function peakRangeForColumn(
   return [i0, i1];
 }
 
+/** The first index in sorted `beats` whose time is at least `t`. */
+function lowerBound(beats: readonly { timeSec: number }[], t: number) {
+  let lo = 0;
+  let hi = beats.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (beats[mid].timeSec < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The indices `[i0, i1)` of the beats (sorted by time) within `[start, end]`
+ * seconds, so a frame only walks the beats on screen.
+ */
+export function visibleBeats(
+  beats: readonly { timeSec: number }[],
+  start: number,
+  end: number,
+): [number, number] {
+  if (!(end >= start)) return [0, 0];
+  const i0 = lowerBound(beats, start);
+  let i1 = lowerBound(beats, end);
+  if (i1 < beats.length && beats[i1].timeSec === end) i1++;
+  return [i0, Math.max(i0, i1)];
+}
+
 /** The largest |value| in `values[i0..i1)`. */
 export function maxAbs(values: ArrayLike<number>, i0: number, i1: number) {
   let m = 0;

@@ -10,6 +10,7 @@ import {
   steady,
   timeToMinimapX,
   timeToZoomedX,
+  visibleBeats,
   visibleWindow,
   zoomedXToTime,
 } from "./geometry";
@@ -161,5 +162,30 @@ describe("steady", () => {
     expect(steady(10, 10 - JITTER_SEC - 0.01, true)).toBeCloseTo(9.94);
     expect(steady(10.03, 10.01, false)).toBe(10.01);
     expect(steady(10, 10.02, true)).toBe(10.02);
+  });
+});
+
+describe("visibleBeats", () => {
+  const beats = [1, 1.5, 2, 2.5, 3].map((timeSec) => ({ timeSec }));
+
+  test("no beats", () => {
+    expect(visibleBeats([], 0, 10)).toEqual([0, 0]);
+  });
+
+  test("a window before the first beat", () => {
+    expect(visibleBeats(beats, -5, 0.5)).toEqual([0, 0]);
+  });
+
+  test("a window after the last beat", () => {
+    expect(visibleBeats(beats, 3.5, 9)).toEqual([5, 5]);
+  });
+
+  test("a window in the middle, ends included", () => {
+    expect(visibleBeats(beats, 1.5, 2.5)).toEqual([1, 4]);
+    expect(visibleBeats(beats, 1.6, 2.4)).toEqual([2, 3]);
+  });
+
+  test("a window covering every beat", () => {
+    expect(visibleBeats(beats, 0, 10)).toEqual([0, 5]);
   });
 });
