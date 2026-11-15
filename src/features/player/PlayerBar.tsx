@@ -1,10 +1,11 @@
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Slider } from "@astryxdesign/core/Slider";
 import { Text } from "@astryxdesign/core/Text";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { formatTime } from "../../playback/time";
 import type { Playback } from "../../playback/usePlayback";
 import { useWaveformData } from "../../waveform/useWaveformData";
+import { Waveform } from "./Waveform";
 
 // Astryx has no transport icons, so these are drawn here at its icon size.
 const svg = {
@@ -65,23 +66,18 @@ interface Props {
   /** Title and artist of the requested Track, if it's the loaded one. */
   title: string | null;
   artist: string | null;
+  /** Why the requested Track couldn't be loaded, shown over the Waveform. */
+  loadError: { title: string; message: string } | null;
 }
 
-export function PlayerBar({ playback, title, artist }: Props) {
+export function PlayerBar({ playback, title, artist, loadError }: Props) {
   const { state, position, volume } = playback;
   const isLoaded = state.trackId !== null && state.status !== "loading";
   const isPlaying = state.status === "playing";
   useSpaceToggle(playback.toggle, isLoaded);
   // Peaks and Cues for the loaded Track, kept current as Peaks are computed.
-  // Not drawn yet: the Waveform renderer is a separate issue.
-  useWaveformData(isLoaded ? state.trackId : null);
+  const waveform = useWaveformData(isLoaded ? state.trackId : null);
 
-  // While dragging, the scrubber shows the drag position, not the playhead.
-  const [scrub, setScrub] = useState<number | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the Track changes.
-  useEffect(() => setScrub(null), [state.trackId]);
-
-  const shown = scrub ?? Math.min(position, state.duration);
   const heading =
     state.status === "loading"
       ? "Loading…"
@@ -91,61 +87,58 @@ export function PlayerBar({ playback, title, artist }: Props) {
 
   return (
     <section className="sb-player" aria-label="Player">
-      <IconButton
-        label={isPlaying ? "Pause" : "Play"}
-        tooltip={isPlaying ? "Pause (Space)" : "Play (Space)"}
-        icon={isPlaying ? <PauseIcon /> : <PlayIcon />}
-        variant="primary"
-        isDisabled={!isLoaded}
-        onClick={playback.toggle}
+      <Waveform
+        data={waveform.data}
+        peaksStatus={waveform.status}
+        position={position}
+        status={state.status}
+        duration={state.duration}
+        onSeek={playback.seek}
+        error={loadError}
+        isEmpty={state.trackId === null && state.status !== "loading"}
       />
-      <div className="sb-player-track">
-        <Text type="label" maxLines={1}>
-          {heading}
-        </Text>
-        <Text type="supporting" maxLines={1}>
-          {state.trackId && state.status !== "loading"
-            ? artist || " "
-            : "Double-click a Track to load it"}
-        </Text>
-      </div>
-      <div className="sb-player-seek">
-        <Text type="supporting" hasTabularNumbers>
-          {formatTime(shown)}
-        </Text>
-        <Slider
-          label="Position"
-          isLabelHidden
-          min={0}
-          max={Math.max(state.duration, 1)}
-          step={0.1}
-          value={shown}
-          valueDisplay="none"
+      <div className="sb-player-controls">
+        <IconButton
+          label={isPlaying ? "Pause" : "Play"}
+          tooltip={isPlaying ? "Pause (Space)" : "Play (Space)"}
+          icon={isPlaying ? <PauseIcon /> : <PlayIcon />}
+          variant="primary"
           isDisabled={!isLoaded}
-          width="100%"
-          onChange={setScrub}
-          onChangeEnd={(v: number) => {
-            setScrub(null);
-            playback.seek(v);
-          }}
+          onClick={playback.toggle}
         />
-        <Text type="supporting" hasTabularNumbers>
-          {isLoaded ? formatTime(state.duration) : "–"}
-        </Text>
-      </div>
-      <div className="sb-player-volume">
-        <VolumeIcon />
-        <Slider
-          label="Volume"
-          isLabelHidden
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          formatValue={(v) => `${Math.round(v * 100)}%`}
-          width={120}
-          onChange={playback.setVolume}
-        />
+        <div className="sb-player-track">
+          <Text type="label" maxLines={1}>
+            {heading}
+          </Text>
+          <Text type="supporting" maxLines={1}>
+            {state.trackId && state.status !== "loading"
+              ? artist || " "
+              : "Double-click a Track to load it"}
+          </Text>
+        </div>
+        <div className="sb-player-time">
+          <Text type="supporting" hasTabularNumbers>
+            {isLoaded ? formatTime(Math.min(position, state.duration)) : "–"}
+          </Text>
+          <Text type="supporting">/</Text>
+          <Text type="supporting" hasTabularNumbers>
+            {isLoaded ? formatTime(state.duration) : "–"}
+          </Text>
+        </div>
+        <div className="sb-player-volume">
+          <VolumeIcon />
+          <Slider
+            label="Volume"
+            isLabelHidden
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            formatValue={(v) => `${Math.round(v * 100)}%`}
+            width={120}
+            onChange={playback.setVolume}
+          />
+        </div>
       </div>
     </section>
   );
