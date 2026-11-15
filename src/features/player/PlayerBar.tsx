@@ -4,6 +4,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useState } from "react";
 import { formatTime } from "../../playback/time";
 import type { Playback } from "../../playback/usePlayback";
+import { useWaveformData } from "../../waveform/useWaveformData";
 
 // Astryx has no transport icons, so these are drawn here at its icon size.
 const svg = {
@@ -71,6 +72,9 @@ export function PlayerBar({ playback, title, artist }: Props) {
   const isLoaded = state.trackId !== null && state.status !== "loading";
   const isPlaying = state.status === "playing";
   useSpaceToggle(playback.toggle, isLoaded);
+  // Peaks and Cues for the loaded Track, kept current as Peaks are computed.
+  // Not drawn yet: the Waveform renderer is a separate issue.
+  useWaveformData(isLoaded ? state.trackId : null);
 
   // While dragging, the scrubber shows the drag position, not the playhead.
   const [scrub, setScrub] = useState<number | null>(null);

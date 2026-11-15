@@ -89,57 +89,10 @@ impl Deck for RodioDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const RATE: u32 = 8000;
-
-    /// One second of 16-bit mono silence as AIFF (big-endian, an 80-bit
-    /// extended float for the sample rate).
-    fn aiff() -> Vec<u8> {
-        let frames = RATE;
-        let data_len = frames * 2;
-        let mut b = Vec::new();
-        b.extend(b"FORM");
-        b.extend((4 + 26 + 16 + data_len).to_be_bytes());
-        b.extend(b"AIFF");
-        b.extend(b"COMM");
-        b.extend(18u32.to_be_bytes());
-        b.extend(1u16.to_be_bytes()); // channels
-        b.extend(frames.to_be_bytes());
-        b.extend(16u16.to_be_bytes()); // bits per sample
-        // 8000 = 1.953125 × 2^12 → exponent 16383 + 12, mantissa 0xFA00…
-        b.extend((16383u16 + 12).to_be_bytes());
-        b.extend(0xFA00_0000_0000_0000u64.to_be_bytes());
-        b.extend(b"SSND");
-        b.extend((8 + data_len).to_be_bytes());
-        b.extend([0u8; 8]); // offset, block size
-        b.extend(vec![0u8; data_len as usize]);
-        b
-    }
-
-    fn wav() -> Vec<u8> {
-        let data_len = RATE * 2;
-        let mut b = Vec::new();
-        b.extend(b"RIFF");
-        b.extend((36 + data_len).to_le_bytes());
-        b.extend(b"WAVEfmt ");
-        b.extend(16u32.to_le_bytes());
-        b.extend(1u16.to_le_bytes()); // PCM
-        b.extend(1u16.to_le_bytes()); // channels
-        b.extend(RATE.to_le_bytes());
-        b.extend((RATE * 2).to_le_bytes());
-        b.extend(2u16.to_le_bytes());
-        b.extend(16u16.to_le_bytes());
-        b.extend(b"data");
-        b.extend(data_len.to_le_bytes());
-        b.extend(vec![0u8; data_len as usize]);
-        b
-    }
+    use crate::playback::test_audio::{RATE, aiff, wav, write_temp};
 
     fn decodes(name: &str, bytes: Vec<u8>) {
-        let dir = std::env::temp_dir().join(format!("syncbox-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(name);
-        std::fs::write(&path, bytes).unwrap();
+        let path = write_temp(name, &bytes);
         let decoder = open(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
         let duration = duration_of(&decoder).expect("duration");
         assert!(
